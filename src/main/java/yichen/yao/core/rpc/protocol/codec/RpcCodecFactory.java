@@ -1,8 +1,8 @@
 package yichen.yao.core.rpc.protocol.codec;
 
 import yichen.yao.core.rpc.protocol.codec.netty.NettyRequestCodec;
-import yichen.yao.core.rpc.serialize.Serializer;
-import yichen.yao.core.rpc.serialize.SerializerFactory;
+import yichen.yao.core.rpc.serialization.Serializer;
+import yichen.yao.core.rpc.serialization.SerializerFactory;
 
 /**
  * @Author: siran.yao

@@ -10,9 +10,9 @@ import yichen.yao.core.rpc.protocol.request.VoteRequest;
 import yichen.yao.core.rpc.protocol.response.AppendEntriesResponse;
 import yichen.yao.core.rpc.protocol.response.InstallSnapshotResponse;
 import yichen.yao.core.rpc.protocol.response.VoteResponse;
-import yichen.yao.core.rpc.serialize.Serializer;
-import yichen.yao.core.rpc.serialize.fastjson.FastJsonSerializer;
-import yichen.yao.core.rpc.serialize.probuf.ProbufSerializer;
+import yichen.yao.core.rpc.serialization.Serializer;
+import yichen.yao.core.rpc.serialization.fastjson.FastJsonSerializer;
+import yichen.yao.core.rpc.serialization.probuf.ProbufSerializer;
 
 import java.util.HashMap;
 import java.util.Map;

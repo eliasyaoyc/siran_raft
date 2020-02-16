@@ -3,7 +3,7 @@ package yichen.yao.core.rpc.protocol.codec.netty;
 import io.netty.buffer.ByteBuf;
 import yichen.yao.core.rpc.protocol.RpcRequest;
 import yichen.yao.core.rpc.protocol.codec.RpcCodec;
-import yichen.yao.core.rpc.serialize.Serializer;
+import yichen.yao.core.rpc.serialization.Serializer;
 
 /**
  * @Author: siran.yao
