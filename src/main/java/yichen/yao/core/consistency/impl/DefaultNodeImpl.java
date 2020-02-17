@@ -8,6 +8,7 @@ import yichen.yao.core.config.NodeConfig;
 import yichen.yao.core.consistency.Consensus;
 import yichen.yao.core.consistency.Node;
 import yichen.yao.core.entity.LogEntry;
+import yichen.yao.core.rpc.RpcClient;
 import yichen.yao.core.rpc.RpcServer;
 import yichen.yao.core.rpc.protocol.request.AppendEntriesRequest;
 import yichen.yao.core.rpc.protocol.request.ClientRequest;
@@ -17,10 +18,13 @@ import yichen.yao.core.rpc.protocol.response.AppendEntriesResponse;
 import yichen.yao.core.rpc.protocol.response.ClientResponse;
 import yichen.yao.core.rpc.protocol.response.InstallSnapshotResponse;
 import yichen.yao.core.rpc.protocol.response.VoteResponse;
+import yichen.yao.core.rpc.remoting.netty.client.NettyClient;
 import yichen.yao.core.rpc.remoting.netty.server.NettyServer;
 
+import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * @Author: siran.yao
@@ -33,8 +37,9 @@ public class DefaultNodeImpl implements Node {
 
     private NodeConfig nodeConfig;
     private Consensus consensus;
+    private RpcClient rpcClient;
 
-    RaftThreadPool raftThreadPool = RaftThreadPool.INSTANCE;
+    private RaftThreadPool raftThreadPool = RaftThreadPool.INSTANCE;
 
     private HeartBeatTask heartBeatTask = new HeartBeatTask();
     private ElectionTask electionTask = new ElectionTask();
@@ -83,6 +88,7 @@ public class DefaultNodeImpl implements Node {
      * 对于每一个服务器，已经复制给他的日志的最高索引值
      */
     private int[] matchIndex;
+
     /**
      * 大致流程：
      * 原则：相同term，先来先服务
@@ -104,6 +110,7 @@ public class DefaultNodeImpl implements Node {
             consensus = new DefaultConsensusImpl(this);
             //获取当前节点配置 开启通信
             RpcServer rpcServer = new NettyServer(nodeConfig.getHost(), nodeConfig.getPort());
+            rpcClient = new NettyClient("", 1);
             try {
                 rpcServer.startServer();
             } catch (InterruptedException e) {
@@ -128,17 +135,17 @@ public class DefaultNodeImpl implements Node {
 
     @Override
     public VoteResponse handlerVoteRequest(VoteRequest voteRequest) {
-        return consensus.sendVoteRequest(voteRequest);
+        return consensus.voteRequest(voteRequest);
     }
 
     @Override
     public AppendEntriesResponse handleAppendEntriesRequest(AppendEntriesRequest appendEntriesRequest) {
-        return consensus.sendAppendEntriesRequest(appendEntriesRequest);
+        return consensus.appendEntriesRequest(appendEntriesRequest);
     }
 
     @Override
     public InstallSnapshotResponse handleInstallSnapshotRequest(InstallSnapshotRequest installSnapshotRequest) {
-        return consensus.sendInstallSnapshotRequest(installSnapshotRequest);
+        return consensus.installSnapshotRequest(installSnapshotRequest);
     }
 
     @Override
@@ -158,10 +165,10 @@ public class DefaultNodeImpl implements Node {
             //是否满足心跳时间间隔
             long curTime = System.currentTimeMillis();
             if (curTime - prevHeartBeatTime >= heartBeatInterval) {
-                for (String address : nodeConfig.getOtherNodeList()) {
+                for (String peer : nodeConfig.getOtherNodeList()) {
                     //note: 此处使用线程池是提升性能给其他节点并发发送心跳
                     raftThreadPool.execute(() -> {
-                        AppendEntriesResponse response = handleAppendEntriesRequest(composeHeartBeatRequest(address));
+                        AppendEntriesResponse response = (AppendEntriesResponse) rpcClient.sendRequest(composeHeartBeatRequest(peer));
                         //follower 和 leader 不在同一任期中： leader发生宕机重新上线或者其他情况导致  重新竞选了leader  那么转换为follower
                         if (currentTerm < response.getTerm())
                             nodeState = NodeEnum.Follower.getCode();
@@ -176,29 +183,87 @@ public class DefaultNodeImpl implements Node {
     class ElectionTask implements Runnable {
         @Override
         public void run() {
-            if(nodeState == NodeEnum.Leader.getCode())
+            if (nodeState == NodeEnum.Leader.getCode())
                 return;
             long curTime = System.currentTimeMillis();
             electionTime = electionTime + ThreadLocalRandom.current().nextInt(50);
-            if(curTime - preElectionTIme < electionTime)
+            if (curTime - preElectionTIme < electionTime)
                 return;
 
             nodeState = NodeEnum.Candidate.getCode();
+
             preElectionTIme = System.currentTimeMillis() + ThreadLocalRandom.current().nextInt(200);
 
             currentTerm++;
 
-            votedFor = nodeConfig.getHost()+nodeConfig.getPort();
+            votedFor = nodeConfig.getHost() + nodeConfig.getPort();
 
             //只有candidate才可以发起vote请求
-            if(nodeState == NodeEnum.Candidate.getCode()){
+            if (nodeState != NodeEnum.Candidate.getCode())
+                return;
+
+            List<String> otherNodeList = nodeConfig.getOtherNodeList();
+            if (otherNodeList == null && otherNodeList.size() <= 0)
+                return;
+            List<Future> futureList = new ArrayList<>();
+            for (String peer : otherNodeList) {
+                futureList.add(  raftThreadPool.submit(new Callable() {
+                    @Override
+                    public Object call() throws Exception {
+                        return rpcClient.sendRequest(composeVoteRequest(peer));
+                    }
+                }));
+            }
+            CountDownLatch countDownLatch = new CountDownLatch(futureList.size());
+            AtomicInteger voteCount = new AtomicInteger(1);
+            for (Future f : futureList){
+                raftThreadPool.submit(new Callable() {
+                    @Override
+                    public Object call() throws Exception {
+                        try {
+                            VoteResponse res = (VoteResponse) f.get(3000, TimeUnit.MILLISECONDS);
+                            if (res == null)
+                                return -1;
+                            if(res.isVoteGranted())
+                                voteCount.incrementAndGet();
+                            else {
+                                if(currentTerm <= res.getTerm())
+                                    currentTerm = res.getTerm();
+                            }
+                            return 0;
+                        } catch (Exception e) {
+                            LOGGER.error(" get future error, cause : {}",e);
+                            return -1;
+                        }finally {
+                            countDownLatch.countDown();
+                        }
+                    }
+                });
+            }
+
+            try {
+                countDownLatch.await();
+            } catch (InterruptedException e) {
+                LOGGER.error("Interrupted by master thread , cause : {}",e);
+            }
+
+            int count = voteCount.get();
+            LOGGER.info("node {} maybe become leader , success count = {} , status : {}", nodeConfig.getHost()+":"+nodeConfig.getPort(), count,nodeState);
+            if(nodeState == NodeEnum.Follower.getCode())
+                return;
+            if (count >= otherNodeList.size() / 2){
+                LOGGER.info("node {} become leader",nodeConfig.getHost()+":"+nodeConfig.getPort());
+                nodeState = NodeEnum.Leader.getCode();
+                votedFor = "";
+            }else {
+                votedFor = "";
             }
         }
     }
 
-    private AppendEntriesRequest composeHeartBeatRequest(String address) {
+    private AppendEntriesRequest composeHeartBeatRequest(String peer) {
         return AppendEntriesRequest.builder()
-                .leaderId(address)
+                .leaderId(peer)
                 .preLogIndex(0)
                 .prevLogTerm(0)
                 .entries(null) //heartbeat 条目为空
@@ -207,10 +272,10 @@ public class DefaultNodeImpl implements Node {
                 .build();
     }
 
-    private VoteRequest composeVoteRequest(String address){
+    private VoteRequest composeVoteRequest(String peer) {
         LogEntry logEntry = log.get(log.size());
         return VoteRequest.builder()
-                .candidateId(address)
+                .candidateId(peer)
                 .lastLogIndex(logEntry == null ? 0 : logEntry.getLogIndex())
                 .lastLogTerm(logEntry == null ? 0 : logEntry.getLogTerm())
                 .term(currentTerm)

@@ -18,19 +18,19 @@ public interface Consensus {
      * @param request
      * @return
      */
-    VoteResponse sendVoteRequest(VoteRequest request);
+    VoteResponse voteRequest(VoteRequest request);
 
     /**
      * 附加日志 ，心跳  rpc
      * @param request
      * @return
      */
-    AppendEntriesResponse sendAppendEntriesRequest(AppendEntriesRequest request);
+    AppendEntriesResponse appendEntriesRequest(AppendEntriesRequest request);
 
     /**
      * 快照 rpc
      * @param request
      * @return
      */
-    InstallSnapshotResponse sendInstallSnapshotRequest(InstallSnapshotRequest request);
+    InstallSnapshotResponse installSnapshotRequest(InstallSnapshotRequest request);
 }

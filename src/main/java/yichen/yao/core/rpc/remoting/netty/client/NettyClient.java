@@ -7,14 +7,17 @@ import io.netty.channel.EventLoopGroup;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioSocketChannel;
-import yichen.yao.core.rpc.remoting.netty.client.handler.AppendEntriesResponseHandler;
-import yichen.yao.core.rpc.remoting.netty.client.handler.InstallSnapshotResponseHandler;
-import yichen.yao.core.rpc.remoting.netty.client.handler.VoteResponseHandler;
+import yichen.yao.core.rpc.RpcClient;
+import yichen.yao.core.rpc.protocol.RpcRequest;
+import yichen.yao.core.rpc.protocol.RpcResponse;
 import yichen.yao.core.rpc.protocol.codec.RpcCodec;
 import yichen.yao.core.rpc.protocol.codec.netty.NettyRequestCodec;
 import yichen.yao.core.rpc.protocol.codec.netty.NettyRequestDecoder;
 import yichen.yao.core.rpc.protocol.codec.netty.NettyRequestEncoder;
 import yichen.yao.core.rpc.protocol.codec.netty.Spliter;
+import yichen.yao.core.rpc.remoting.netty.client.handler.AppendEntriesResponseHandler;
+import yichen.yao.core.rpc.remoting.netty.client.handler.InstallSnapshotResponseHandler;
+import yichen.yao.core.rpc.remoting.netty.client.handler.VoteResponseHandler;
 import yichen.yao.core.rpc.serialization.SerializerFactory;
 
 import java.net.InetSocketAddress;
@@ -23,7 +26,7 @@ import java.net.InetSocketAddress;
  * @Author: siran.yao
  * @time: 2020/2/13:下午6:03
  */
-public class NettyClient extends RpcClient {
+public class NettyClient implements RpcClient {
     private String host;
     private int port;
     private RpcCodec rpcCodec;
@@ -32,6 +35,11 @@ public class NettyClient extends RpcClient {
         this.host = host;
         this.port = port;
         rpcCodec = new NettyRequestCodec(new SerializerFactory().getSerializer());
+    }
+
+    @Override
+    public RpcResponse sendRequest(RpcRequest rpcRequest) {
+        return null;
     }
 
     public void connection() {
