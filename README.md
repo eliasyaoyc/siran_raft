@@ -22,12 +22,19 @@
 #### 3. 一致性(核心)
 #### Leader Election：
 流程：
+
 原则：相同term，先来先服务
+
 1 服务启动至为follower状态，等待接受rpc (leader发送的心跳，candidate发送的投票)
+
 1.1 如果在这段时间内没有接受到任何rpc，那么认为整个集群中没有leader，那么term+1转换为candidate状态并且发送投票rpc竞选成为leader
+
 1.2 如果candidate 获得集群中大多数节点的认可那么成为leader
+
 1.3 如果在其他节点成为了leader那么他会接收到leader节点发送过来的心跳rpc，那么candidate转换成follower
+
 1.4 如果在同一个term下有多个candidate竞争并且获得的票数相同那么没有candidate可以成为leader，然后超时，继续发送vote请求
+
 #### Log Replication
 #### 4. 日志压缩
 #### 5. 测试用例
