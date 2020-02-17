@@ -9,6 +9,7 @@ import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
 import io.netty.handler.logging.LogLevel;
 import io.netty.handler.logging.LoggingHandler;
+import yichen.yao.core.consistency.Node;
 import yichen.yao.core.rpc.RpcServer;
 import yichen.yao.core.rpc.protocol.codec.RpcCodec;
 import yichen.yao.core.rpc.protocol.codec.netty.NettyRequestCodec;
@@ -31,11 +32,13 @@ public class NettyServer implements RpcServer {
     private String host;
     private int port;
     private RpcCodec rpcCodec;
+    private Node node;
 
-    public NettyServer(String host, int port) {
+    public NettyServer(String host, int port,Node node) {
         this.host = host;
         this.port = port;
         rpcCodec = new NettyRequestCodec(new SerializerFactory().getSerializer());
+        this.node = node;
     }
 
     public void startServer() {
@@ -53,9 +56,9 @@ public class NettyServer implements RpcServer {
                                     .pipeline()
                                     .addLast(new Spliter())
                                     .addLast(new NettyRequestDecoder(rpcCodec))
-                                    .addLast(new VoteRequestHandler())
-                                    .addLast(new AppendEntriesRequestHandler())
-                                    .addLast(new InstallSnapshotRequestHandler())
+                                    .addLast(new VoteRequestHandler(node))
+                                    .addLast(new AppendEntriesRequestHandler(node))
+                                    .addLast(new InstallSnapshotRequestHandler(node))
                                     .addLast(new NettyRequestEncoder(rpcCodec))
                             ;
                         }
@@ -71,7 +74,7 @@ public class NettyServer implements RpcServer {
     }
 
 
-    public static void main(String[] args) {
-        new NettyServer("localhost",8080).startServer();
-    }
+//    public static void main(String[] args) {
+//        new NettyServer("localhost",8080).startServer();
+//    }
 }

@@ -109,8 +109,7 @@ public class DefaultNodeImpl implements Node {
             }
             consensus = new DefaultConsensusImpl(this);
             //获取当前节点配置 开启通信
-            RpcServer rpcServer = new NettyServer(nodeConfig.getHost(), nodeConfig.getPort());
-            rpcClient = new NettyClient("", 1);
+            RpcServer rpcServer = new NettyServer(nodeConfig.getHost(), nodeConfig.getPort(),this);
             try {
                 rpcServer.startServer();
             } catch (InterruptedException e) {
@@ -168,7 +167,14 @@ public class DefaultNodeImpl implements Node {
                 for (String peer : nodeConfig.getOtherNodeList()) {
                     //note: 此处使用线程池是提升性能给其他节点并发发送心跳
                     raftThreadPool.execute(() -> {
-                        AppendEntriesResponse response = (AppendEntriesResponse) rpcClient.sendRequest(composeHeartBeatRequest(peer));
+                        AppendEntriesResponse response = null;
+                        try {
+                            String[] split = peer.split(",");
+                            rpcClient = new NettyClient(split[0],Integer.parseInt(split[1]));
+                            response = (AppendEntriesResponse) rpcClient.sendRequest(composeHeartBeatRequest(peer));
+                        } catch (InterruptedException e) {
+                            e.printStackTrace();
+                        }
                         //follower 和 leader 不在同一任期中： leader发生宕机重新上线或者其他情况导致  重新竞选了leader  那么转换为follower
                         if (currentTerm < response.getTerm())
                             nodeState = NodeEnum.Follower.getCode();
