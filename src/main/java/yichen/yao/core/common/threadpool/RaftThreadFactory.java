@@ -14,9 +14,7 @@ public class RaftThreadFactory implements ThreadFactory {
     private static String namePrefix;
 
     public RaftThreadFactory() {
-        tg = (System.getSecurityManager().getThreadGroup() == null) ?
-                Thread.currentThread().getThreadGroup() :
-                System.getSecurityManager().getThreadGroup();
+        tg = Thread.currentThread().getThreadGroup();
         namePrefix = "raft"+ "-" + poolNum.getAndIncrement() + "thread-";
     }
 

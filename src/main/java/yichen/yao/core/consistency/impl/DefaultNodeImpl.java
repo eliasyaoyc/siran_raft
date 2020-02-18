@@ -161,6 +161,8 @@ public class DefaultNodeImpl implements Node {
             if (nodeState != NodeEnum.Leader.getCode())
                 return;
 
+            LOGGER.info("maybe send heartBeat current state {}",nodeState);
+
             //是否满足心跳时间间隔
             long curTime = System.currentTimeMillis();
             if (curTime - prevHeartBeatTime >= heartBeatInterval) {
@@ -169,7 +171,7 @@ public class DefaultNodeImpl implements Node {
                     raftThreadPool.execute(() -> {
                         AppendEntriesResponse response = null;
                         try {
-                            String[] split = peer.split(",");
+                            String[] split = peer.split(":");
                             rpcClient = new NettyClient(split[0],Integer.parseInt(split[1]));
                             response = (AppendEntriesResponse) rpcClient.sendRequest(composeHeartBeatRequest(peer));
                         } catch (InterruptedException e) {
@@ -198,11 +200,13 @@ public class DefaultNodeImpl implements Node {
 
             nodeState = NodeEnum.Candidate.getCode();
 
+            LOGGER.info("start election ,current state{}",nodeState);
+
             preElectionTIme = System.currentTimeMillis() + ThreadLocalRandom.current().nextInt(200);
 
             currentTerm++;
 
-            votedFor = nodeConfig.getHost() + nodeConfig.getPort();
+            votedFor = nodeConfig.getHost()+ ":" + nodeConfig.getPort();
 
             //只有candidate才可以发起vote请求
             if (nodeState != NodeEnum.Candidate.getCode())
@@ -216,6 +220,8 @@ public class DefaultNodeImpl implements Node {
                 futureList.add(  raftThreadPool.submit(new Callable() {
                     @Override
                     public Object call() throws Exception {
+                        String[] split = peer.split(":");
+                        rpcClient = new NettyClient(split[0],Integer.parseInt(split[1]));
                         return rpcClient.sendRequest(composeVoteRequest(peer));
                     }
                 }));
@@ -238,7 +244,7 @@ public class DefaultNodeImpl implements Node {
                             }
                             return 0;
                         } catch (Exception e) {
-                            LOGGER.error(" get future error, cause : {}",e);
+                            LOGGER.error(" get future error, cause {}",e);
                             return -1;
                         }finally {
                             countDownLatch.countDown();
@@ -257,7 +263,7 @@ public class DefaultNodeImpl implements Node {
             LOGGER.info("node {} maybe become leader , success count = {} , status : {}", nodeConfig.getHost()+":"+nodeConfig.getPort(), count,nodeState);
             if(nodeState == NodeEnum.Follower.getCode())
                 return;
-            if (count >= otherNodeList.size() / 2){
+            if (count >= otherNodeList.size() + 1 / 2){
                 LOGGER.info("node {} become leader",nodeConfig.getHost()+":"+nodeConfig.getPort());
                 nodeState = NodeEnum.Leader.getCode();
                 votedFor = "";
@@ -279,11 +285,10 @@ public class DefaultNodeImpl implements Node {
     }
 
     private VoteRequest composeVoteRequest(String peer) {
-        LogEntry logEntry = log.get(log.size());
         return VoteRequest.builder()
                 .candidateId(peer)
-                .lastLogIndex(logEntry == null ? 0 : logEntry.getLogIndex())
-                .lastLogTerm(logEntry == null ? 0 : logEntry.getLogTerm())
+                .lastLogIndex(log == null ? 0 : log.get(log.size()).getLogIndex())
+                .lastLogTerm(log == null ? 0 : log.get(log.size()).getLogTerm())
                 .term(currentTerm)
                 .build();
     }

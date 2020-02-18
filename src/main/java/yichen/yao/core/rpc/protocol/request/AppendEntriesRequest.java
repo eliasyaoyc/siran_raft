@@ -36,8 +36,11 @@ public class AppendEntriesRequest extends RpcRequest {
 
     private int term;
 
+    public AppendEntriesRequest() {
+    }
+
     private AppendEntriesRequest(String leaderId, long prevLogIndex, int prevLogTerm
-            , List<LogEntry> entries, long leaderCommit,int term) {
+            , List<LogEntry> entries, long leaderCommit, int term) {
         this.leaderId = leaderId;
         this.prevLogIndex = prevLogIndex;
         this.prevLogTerm = prevLogTerm;

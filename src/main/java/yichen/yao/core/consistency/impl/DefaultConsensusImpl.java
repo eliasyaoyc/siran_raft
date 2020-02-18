@@ -1,5 +1,7 @@
 package yichen.yao.core.consistency.impl;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import yichen.yao.core.consistency.Consensus;
 import yichen.yao.core.rpc.protocol.request.AppendEntriesRequest;
 import yichen.yao.core.rpc.protocol.request.InstallSnapshotRequest;
@@ -14,6 +16,7 @@ import yichen.yao.core.rpc.protocol.response.VoteResponse;
  * 默认的一致性实现
  */
 public class DefaultConsensusImpl implements Consensus {
+    private static final Logger LOGGER = LoggerFactory.getLogger(DefaultConsensusImpl.class);
 
     private DefaultNodeImpl defaultNode;
 
@@ -27,8 +30,9 @@ public class DefaultConsensusImpl implements Consensus {
      * @return
      */
     @Override
-    public VoteResponse sendVoteRequest(VoteRequest request) {
-        return null;
+    public VoteResponse voteRequest(VoteRequest request) {
+        LOGGER.info("handle vote request {}",request);
+        return new VoteResponse();
     }
 
     /**
@@ -37,13 +41,15 @@ public class DefaultConsensusImpl implements Consensus {
      * @return
      */
     @Override
-    public AppendEntriesResponse sendAppendEntriesRequest(AppendEntriesRequest request) {
-        return null;
+    public AppendEntriesResponse appendEntriesRequest(AppendEntriesRequest request) {
+        LOGGER.info("handle append entries request {}",request);
+        return new AppendEntriesResponse();
     }
 
     @Override
-    public InstallSnapshotResponse sendInstallSnapshotRequest(InstallSnapshotRequest request) {
-        return null;
+    public InstallSnapshotResponse installSnapshotRequest(InstallSnapshotRequest request) {
+        LOGGER.info("handle install snapshot request {}",request);
+        return new InstallSnapshotResponse();
     }
 
 }

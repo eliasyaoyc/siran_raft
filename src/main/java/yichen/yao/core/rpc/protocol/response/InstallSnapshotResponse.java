@@ -1,6 +1,7 @@
 package yichen.yao.core.rpc.protocol.response;
 
 import lombok.Data;
+import yichen.yao.core.common.constants.RequestType;
 import yichen.yao.core.rpc.protocol.RpcResponse;
 
 /**
@@ -9,4 +10,8 @@ import yichen.yao.core.rpc.protocol.RpcResponse;
  */
 @Data
 public class InstallSnapshotResponse extends RpcResponse {
+
+    public InstallSnapshotResponse() {
+        setRequestType(RequestType.INSTALL_SNAPSHOT_RESPONSE);
+    }
 }

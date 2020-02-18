@@ -8,6 +8,7 @@ import io.netty.channel.EventLoopGroup;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioSocketChannel;
+import yichen.yao.core.consistency.impl.DefaultNodeImpl;
 import yichen.yao.core.rpc.RpcClient;
 import yichen.yao.core.rpc.protocol.RpcRequest;
 import yichen.yao.core.rpc.protocol.RpcResponse;
@@ -22,6 +23,7 @@ import yichen.yao.core.rpc.protocol.request.VoteRequest;
 import yichen.yao.core.rpc.remoting.netty.client.handler.AppendEntriesResponseHandler;
 import yichen.yao.core.rpc.remoting.netty.client.handler.InstallSnapshotResponseHandler;
 import yichen.yao.core.rpc.remoting.netty.client.handler.VoteResponseHandler;
+import yichen.yao.core.rpc.remoting.netty.server.NettyServer;
 import yichen.yao.core.rpc.serialization.SerializerFactory;
 
 import java.net.InetSocketAddress;
@@ -64,7 +66,9 @@ public class NettyClient implements RpcClient {
                                     .addLast(voteResponseHandler)
                                     .addLast(appendEntriesResponse)
                                     .addLast(installSnapshotResponse)
-                                    .addLast(new NettyRequestEncoder(rpcCodec));
+                                    .addLast(new NettyRequestEncoder(rpcCodec))
+//                            .addLast(new TimeClientHandler())
+                            ;
                         }
                     });
             ChannelFuture cf = bootstrap.connect(new InetSocketAddress(host,port)).sync();
@@ -95,6 +99,7 @@ public class NettyClient implements RpcClient {
     }
 
     public static void main(String[] arg){
-        new NettyClient("localhost", 8080).connection();
+        new NettyServer("localhost",8776,new DefaultNodeImpl()).startServer();
+        new NettyClient("localhost", 8775).connection();
     }
 }

@@ -11,8 +11,8 @@ public class RaftThreadPool extends RaftThreadPoolExecutor{
 
     private static ScheduledThreadPoolExecutor scheduledThreadPoolExecutor;
 
-    private static int corePoolSize = Runtime.getRuntime().availableProcessors();
-    private static int maximumPoolSize = corePoolSize * 2;
+    private static final int corePoolSize = 4;
+    private static final int maximumPoolSize = corePoolSize * 2;
     private static final long keepAliveTime = 1000 * 60;
     private static final int queueSize = 1024;
 

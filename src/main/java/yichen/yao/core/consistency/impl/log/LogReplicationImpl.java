@@ -1,6 +1,7 @@
 package yichen.yao.core.consistency.impl.log;
 
 import yichen.yao.core.consistency.impl.DefaultConsensusImpl;
+import yichen.yao.core.consistency.impl.DefaultNodeImpl;
 import yichen.yao.core.rpc.protocol.request.AppendEntriesRequest;
 import yichen.yao.core.rpc.protocol.response.AppendEntriesResponse;
 
@@ -11,8 +12,13 @@ import yichen.yao.core.rpc.protocol.response.AppendEntriesResponse;
  */
 public class LogReplicationImpl extends DefaultConsensusImpl {
 
+
+    public LogReplicationImpl(DefaultNodeImpl defaultNode) {
+        super(defaultNode);
+    }
+
     @Override
-    public AppendEntriesResponse sendAppendEntriesRequest(AppendEntriesRequest request) {
-        return super.sendAppendEntriesRequest(request);
+    public AppendEntriesResponse appendEntriesRequest(AppendEntriesRequest request) {
+        return super.appendEntriesRequest(request);
     }
 }

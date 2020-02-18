@@ -27,6 +27,9 @@ public class VoteRequest extends RpcRequest {
 
     private int term;
 
+    public VoteRequest() {
+    }
+
     private VoteRequest(String candidateId, long lastLogIndex, int lastLogTerm, int term) {
         this.candidateId = candidateId;
         this.lastLogIndex = lastLogIndex;
