@@ -44,6 +44,7 @@ public class DefaultNodeImpl implements Node {
 
     private HeartBeatTask heartBeatTask = new HeartBeatTask();
     private ElectionTask electionTask = new ElectionTask();
+
     private boolean started;
 
     public volatile long electionTime = 15 * 1000;
@@ -53,6 +54,7 @@ public class DefaultNodeImpl implements Node {
 
     //node state  init(follower)
     public volatile int nodeState = NodeEnum.Follower.getCode();
+
 
     //----------------   持久存在 --------------------
     /**
@@ -151,7 +153,7 @@ public class DefaultNodeImpl implements Node {
     }
 
     @Override
-    public ClientResponse handlerClientRequest(ClientRequest clientRequest) {
+    public synchronized ClientResponse handlerClientRequest(ClientRequest clientRequest) {
         if (nodeState != NodeEnum.Leader.getCode()) {
             //如果当前节点不是leader节点，那么转发此请求到leader节点
             try {
@@ -171,25 +173,23 @@ public class DefaultNodeImpl implements Node {
         //写到本地
         logManager.write(logEntry);
         //复制到其他服务器上
-        List<Future<Boolean>> futureList = new ArrayList<>();
+        Map<String ,Future<Boolean>> futureMap = new HashMap<>();
 
         for (String peer : nodeConfig.getOtherNodeList()) {
-            futureList.add(replication(peer, logEntry));
+            futureMap.put(peer,replication(peer, logEntry));
         }
 
-        CountDownLatch latch = new CountDownLatch(futureList.size());
-        List<Boolean> result = new CopyOnWriteArrayList<>();
+        CountDownLatch latch = new CountDownLatch(futureMap.size());
+
         AtomicInteger success = new AtomicInteger(0);
-        for (Future<Boolean> future : futureList) {
+        for (String peerKey : futureMap.keySet()) {
             raftThreadPool.execute(() -> {
                 try {
-                    Boolean aBoolean = future.get(3000, TimeUnit.MILLISECONDS);
-
+                    Boolean aBoolean = futureMap.get(peerKey).get(3000,TimeUnit.MILLISECONDS);
                     if (aBoolean)
                         success.incrementAndGet();
-
                 } catch (Exception e) {
-                    result.add(false);
+                    LOGGER.error("encounter unknown exception,{}",e);
                 } finally {
                     latch.countDown();
                 }
@@ -216,7 +216,7 @@ public class DefaultNodeImpl implements Node {
         }
 
         //大部分节点添加到本地 返回成功
-        if (success.get() > futureList.size() / 2) {
+        if (success.get() > futureMap.size() / 2) {
             commitIndex = logEntry.getLogIndex();
             stateMachine.apply(logEntry);
             lastApplied = logEntry.getLogIndex();
@@ -225,6 +225,7 @@ public class DefaultNodeImpl implements Node {
         } else {
             logManager.removeIndex(logEntry.getLogIndex());
             LOGGER.warn("fail apply local state machine, logEntry {}",logEntry);
+            //客户端会进行重发
             return new ClientResponse(false);
         }
     }
@@ -363,6 +364,7 @@ public class DefaultNodeImpl implements Node {
             // 20s 的重试时间
             while (end - start < 20 * 1000) {
 
+                //查看发往follower 是否又没发的
                 Long nextLogIndex = this.nextIndex.get(peer);
                 List<LogEntry> logEntries = new LinkedList<>();
                 if (logEntry.getLogIndex() >= nextLogIndex) {
@@ -385,7 +387,7 @@ public class DefaultNodeImpl implements Node {
                         this.matchIndex.put(peer, logEntry.getLogIndex());
                         return true;
                     } else {
-                        //附加失败
+                        //附加失败  下次leader再发送日志的时候会发
                         if (response.getTerm() > currentTerm) {
                             LOGGER.info("append entries fail, target's {} term  is {} bigger ,my term is{}, i will become to follower",
                                     peer, response.getTerm(), currentTerm);
