@@ -15,7 +15,38 @@ public class VoteResponse extends RpcResponse {
      */
     private boolean voteGranted;
 
+    private int term;
+
     public VoteResponse() {
+    }
+
+    public VoteResponse(boolean voteGranted,int term) {
+        this.voteGranted = voteGranted;
+        this.term = term;
         setRequestType(RequestType.VOTE_RESPONSE);
+    }
+    public static VoteResponseBuilder builder(){
+        return new VoteResponseBuilder();
+    }
+    public static class VoteResponseBuilder{
+        private boolean voteGranted;
+        private int term;
+
+        private VoteResponseBuilder() {
+        }
+
+        public VoteResponseBuilder voteGranted(boolean voteGranted) {
+            this.voteGranted = voteGranted;
+            return this;
+        }
+
+        public VoteResponseBuilder term(int term) {
+            this.term = term;
+            return this;
+        }
+
+        public VoteResponse build(){
+            return new VoteResponse(voteGranted,term);
+        }
     }
 }

@@ -16,7 +16,40 @@ public class AppendEntriesResponse extends RpcResponse {
      */
     private boolean success;
 
+    private int term;
+
     public AppendEntriesResponse() {
+    }
+
+    public AppendEntriesResponse(boolean success, int term) {
+        this.success = success;
+        this.term = term;
         setRequestType(RequestType.APPEND_ENTRIES_RESPONSE);
+    }
+
+    public static AppendEntriesResponseBuilder builder(){
+        return new AppendEntriesResponseBuilder();
+    }
+
+    public static class AppendEntriesResponseBuilder{
+        private boolean success;
+        private int term;
+
+        private AppendEntriesResponseBuilder() {
+        }
+
+        public AppendEntriesResponseBuilder success(boolean success) {
+            this.success = success;
+            return this;
+        }
+
+        public AppendEntriesResponseBuilder term(int term) {
+            this.term = term;
+            return this;
+        }
+
+        public AppendEntriesResponse build(){
+            return new AppendEntriesResponse(success,term);
+        }
     }
 }

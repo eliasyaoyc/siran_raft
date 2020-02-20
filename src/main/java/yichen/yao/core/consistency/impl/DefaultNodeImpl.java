@@ -6,6 +6,7 @@ import yichen.yao.core.common.enums.NodeEnum;
 import yichen.yao.core.common.threadpool.RaftThreadPool;
 import yichen.yao.core.config.NodeConfig;
 import yichen.yao.core.consistency.Consensus;
+import yichen.yao.core.consistency.LogManager;
 import yichen.yao.core.consistency.Node;
 import yichen.yao.core.entity.LogEntry;
 import yichen.yao.core.rpc.RpcClient;
@@ -22,7 +23,9 @@ import yichen.yao.core.rpc.remoting.netty.client.NettyClient;
 import yichen.yao.core.rpc.remoting.netty.server.NettyServer;
 
 import java.util.ArrayList;
+import java.util.LinkedList;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -43,7 +46,8 @@ public class DefaultNodeImpl implements Node {
 
     private HeartBeatTask heartBeatTask = new HeartBeatTask();
     private ElectionTask electionTask = new ElectionTask();
-
+    private AppendEntriesTask appendEntriesTask = new AppendEntriesTask();
+    private LogManager logManager = new DefaultLogImpl();
     private boolean started;
 
     private volatile long electionTime = 15 * 1000;
@@ -52,42 +56,42 @@ public class DefaultNodeImpl implements Node {
     private volatile long prevHeartBeatTime = 0;
 
     //node state  init(follower)
-    private volatile int nodeState = NodeEnum.Follower.getCode();
+    public volatile int nodeState = NodeEnum.Follower.getCode();
 
     //----------------   持久存在 --------------------
     /**
      * 服务器最后一次知道的任期号（初始化为 0，持续递增）
      */
-    private int currentTerm;
+    public volatile int currentTerm;
     /**
      * 在当前获得选票的候选人的 Id
      */
-    private String votedFor;
+    public volatile String votedFor;
 
     /**
      * 日志条目集；每一个条目包含一个用户状态机执行的指令，和收到时的任期号
      */
-    private List<LogEntry> log;
+    public volatile List<LogEntry> log;
 
 //----------------   所有服务器上经常变的 --------------------
     /**
      * 已知的最大的已经被提交的日志条目的索引值
      */
-    private long commitIndex;
+    public volatile long commitIndex;
     /**
      * 最后被应用到状态机的日志条目索引值（初始化为 0，持续递增）
      */
-    private long lastApplied;
+    public volatile long lastApplied;
 
 //----------------   在领导人里经常改变的 （选举后重新初始化）--------------------
     /**
      * 对于每一个服务器，需要发送给他的下一个日志条目的索引值（初始化为领导人最后索引值加一）
      */
-    private int[] nextIndex;
+    public volatile Map<String, Long> nextIndex;
     /**
      * 对于每一个服务器，已经复制给他的日志的最高索引值
      */
-    private int[] matchIndex;
+    public volatile Map<String, Long> matchIndex;
 
     /**
      * 大致流程：
@@ -109,7 +113,7 @@ public class DefaultNodeImpl implements Node {
             }
             consensus = new DefaultConsensusImpl(this);
             //获取当前节点配置 开启通信
-            RpcServer rpcServer = new NettyServer(nodeConfig.getHost(), nodeConfig.getPort(),this);
+            RpcServer rpcServer = new NettyServer(nodeConfig.getHost(), nodeConfig.getPort(), this);
             try {
                 rpcServer.startServer();
             } catch (InterruptedException e) {
@@ -149,9 +153,56 @@ public class DefaultNodeImpl implements Node {
 
     @Override
     public ClientResponse handlerClientRequest(ClientRequest clientRequest) {
-        return null;
-    }
+        if (nodeState != NodeEnum.Leader.getCode()) {
+            //如果当前节点不是leader节点，那么转发此请求到leader节点
+            try {
+                return (ClientResponse) rpcClient.sendRequest(nodeConfig.getLeaderIp(), clientRequest);
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
+        }
+        //是leader 开始处理消息。
 
+        LogEntry logEntry = LogEntry.builder()
+                .command(clientRequest.getCommand())
+                .logIndex(clientRequest.getLogIndex())
+                .logTerm(currentTerm)
+                .build();
+        //写到本地
+        log.add(logEntry);
+        //复制到其他服务器上
+        List<Future<Boolean>> futureList = new ArrayList<>();
+
+        for (String peer : nodeConfig.getOtherNodeList()) {
+            futureList.add(replication(peer, logEntry));
+        }
+        CountDownLatch latch = new CountDownLatch(futureList.size());
+        List<Boolean> result = new CopyOnWriteArrayList<>();
+        AtomicInteger success = new AtomicInteger(0);
+        for (Future<Boolean> future : futureList) {
+            raftThreadPool.execute(() -> {
+                try {
+                    Boolean aBoolean = future.get(3000, TimeUnit.MILLISECONDS);
+                    if(aBoolean)
+                        success.incrementAndGet();
+
+                } catch (Exception e) {
+                    result.add(false);
+                } finally {
+                    latch.countDown();
+                }
+            });
+        }
+
+
+        try {
+            latch.await(4000, TimeUnit.MILLISECONDS);
+        } catch (InterruptedException e) {
+            LOGGER.error("count down interrupted {}", e);
+        }
+
+        return new ClientResponse();
+    }
 
     class HeartBeatTask implements Runnable {
 
@@ -161,7 +212,7 @@ public class DefaultNodeImpl implements Node {
             if (nodeState != NodeEnum.Leader.getCode())
                 return;
 
-            LOGGER.info("maybe send heartBeat current state {}",nodeState);
+            LOGGER.info("maybe send heartBeat current state {}", nodeState);
 
             //是否满足心跳时间间隔
             long curTime = System.currentTimeMillis();
@@ -172,8 +223,8 @@ public class DefaultNodeImpl implements Node {
                         AppendEntriesResponse response = null;
                         try {
                             String[] split = peer.split(":");
-                            rpcClient = new NettyClient(split[0],Integer.parseInt(split[1]));
-                            response = (AppendEntriesResponse) rpcClient.sendRequest(composeHeartBeatRequest(peer));
+                            rpcClient = new NettyClient(split[0], Integer.parseInt(split[1]));
+                            response = (AppendEntriesResponse) rpcClient.sendRequest(peer, composeHeartBeatRequest(nodeConfig.getLeaderIp()));
                         } catch (InterruptedException e) {
                             e.printStackTrace();
                         }
@@ -200,13 +251,13 @@ public class DefaultNodeImpl implements Node {
 
             nodeState = NodeEnum.Candidate.getCode();
 
-            LOGGER.info("start election ,current state{}",nodeState);
+            LOGGER.info("start election ,current state{}", nodeState);
 
             preElectionTIme = System.currentTimeMillis() + ThreadLocalRandom.current().nextInt(200);
 
             currentTerm++;
 
-            votedFor = nodeConfig.getHost()+ ":" + nodeConfig.getPort();
+            votedFor = nodeConfig.getHost() + ":" + nodeConfig.getPort();
 
             //只有candidate才可以发起vote请求
             if (nodeState != NodeEnum.Candidate.getCode())
@@ -217,18 +268,18 @@ public class DefaultNodeImpl implements Node {
                 return;
             List<Future> futureList = new ArrayList<>();
             for (String peer : otherNodeList) {
-                futureList.add(  raftThreadPool.submit(new Callable() {
+                futureList.add(raftThreadPool.submit(new Callable() {
                     @Override
                     public Object call() throws Exception {
                         String[] split = peer.split(":");
-                        rpcClient = new NettyClient(split[0],Integer.parseInt(split[1]));
-                        return rpcClient.sendRequest(composeVoteRequest(peer));
+                        rpcClient = new NettyClient(split[0], Integer.parseInt(split[1]));
+                        return rpcClient.sendRequest(peer, composeVoteRequest(peer));
                     }
                 }));
             }
             CountDownLatch countDownLatch = new CountDownLatch(futureList.size());
             AtomicInteger voteCount = new AtomicInteger(1);
-            for (Future f : futureList){
+            for (Future f : futureList) {
                 raftThreadPool.submit(new Callable() {
                     @Override
                     public Object call() throws Exception {
@@ -236,17 +287,17 @@ public class DefaultNodeImpl implements Node {
                             VoteResponse res = (VoteResponse) f.get(3000, TimeUnit.MILLISECONDS);
                             if (res == null)
                                 return -1;
-                            if(res.isVoteGranted())
+                            if (res.isVoteGranted())
                                 voteCount.incrementAndGet();
                             else {
-                                if(currentTerm <= res.getTerm())
+                                if (currentTerm <= res.getTerm())
                                     currentTerm = res.getTerm();
                             }
                             return 0;
                         } catch (Exception e) {
-                            LOGGER.error(" get future error, cause {}",e);
+                            LOGGER.error(" get future error, cause {}", e);
                             return -1;
-                        }finally {
+                        } finally {
                             countDownLatch.countDown();
                         }
                     }
@@ -256,21 +307,96 @@ public class DefaultNodeImpl implements Node {
             try {
                 countDownLatch.await();
             } catch (InterruptedException e) {
-                LOGGER.error("Interrupted by master thread , cause : {}",e);
+                LOGGER.error("Interrupted by master thread , cause : {}", e);
             }
 
             int count = voteCount.get();
-            LOGGER.info("node {} maybe become leader , success count = {} , status : {}", nodeConfig.getHost()+":"+nodeConfig.getPort(), count,nodeState);
-            if(nodeState == NodeEnum.Follower.getCode())
+            LOGGER.info("node {} maybe become leader , success count = {} , status : {}", nodeConfig.getHost() + ":" + nodeConfig.getPort(), count, nodeState);
+            if (nodeState == NodeEnum.Follower.getCode())
                 return;
-            if (count >= otherNodeList.size() + 1 / 2){
-                LOGGER.info("node {} become leader",nodeConfig.getHost()+":"+nodeConfig.getPort());
+            if (count >= otherNodeList.size() + 1 / 2) {
+                LOGGER.info("node {} become leader", nodeConfig.getHost() + ":" + nodeConfig.getPort());
                 nodeState = NodeEnum.Leader.getCode();
                 votedFor = "";
-            }else {
+                nodeConfig.setLeaderIp(nodeConfig.getHost() + ":" + nodeConfig.getPort());
+
+                initNextLogAndMatchLog();
+            } else {
                 votedFor = "";
             }
         }
+    }
+
+    class AppendEntriesTask implements Runnable {
+        @Override
+        public void run() {
+        }
+    }
+
+    private void initNextLogAndMatchLog() {
+        this.nextIndex = new ConcurrentHashMap<>();
+        this.matchIndex = new ConcurrentHashMap<>();
+        for (String peer : nodeConfig.getOtherNodeList()) {
+            matchIndex.put(peer, 0L);
+            nextIndex.put(peer, log == null ? 0L : log.get(log.size()).getLogIndex());
+        }
+    }
+
+    private Future<Boolean> replication(String peer, LogEntry logEntry) {
+        return raftThreadPool.submit((Callable) () -> {
+            long start = System.currentTimeMillis(), end = start;
+            // 20s 的重试时间
+            while (end - start < 20 * 1000) {
+
+                Long nextLogIndex = this.nextIndex.get(peer);
+                List<LogEntry> logEntries = new LinkedList<>();
+                if (logEntry.getLogIndex() >= nextLogIndex) {
+                    logEntries = log.subList(Math.toIntExact(nextLogIndex), Math.toIntExact(logEntry.getLogIndex()));
+                } else {
+                    logEntries.add(logEntry);
+                }
+                try {
+                    AppendEntriesRequest request = composeAppendEntries(nodeConfig.getLeaderIp(), logEntries, logEntries.get(0).getLogIndex(), logEntries.get(0).getLogTerm());
+                    AppendEntriesResponse response = (AppendEntriesResponse) rpcClient.sendRequest(peer, request);
+                    if (response == null)
+                        return false;
+                    if (response.isSuccess()) {
+                        //附加成功
+                        this.nextIndex.put(peer, logEntry.getLogIndex() + 1);
+                        this.matchIndex.put(peer, logEntry.getLogIndex());
+                        return true;
+                    } else {
+                        //附加失败
+                        if (response.getTerm() > currentTerm) {
+                            LOGGER.info("append entries fail, target's {} term  is {} bigger ,my term is{}, i will become to follower",
+                                    peer, response.getTerm(), currentTerm);
+                            currentTerm = response.getTerm();
+                            nodeState = NodeEnum.Follower.getCode();
+                            return false;
+                        } else {
+                            LOGGER.info("current nextIndex {},restart: nextIndex - 1", this.nextIndex.get(peer));
+                            this.nextIndex.put(peer, this.nextIndex.get(peer) == 0 ? 0 : this.nextIndex.get(peer) - 1);
+                        }
+                    }
+                    end = System.currentTimeMillis();
+                } catch (Exception e) {
+                    LOGGER.info("encounter unknown exception{}", e);
+                    return false;
+                }
+            }
+            return false;
+        });
+    }
+
+    private AppendEntriesRequest composeAppendEntries(String peer, List<LogEntry> logEntries, long preLogIndex, int prevLogTerm) {
+        return AppendEntriesRequest.builder()
+                .leaderId(peer)
+                .preLogIndex(preLogIndex)
+                .prevLogTerm(prevLogTerm)
+                .entries(logEntries) //heartbeat 条目为空
+                .leaderCommit(commitIndex)
+                .term(currentTerm)
+                .build();
     }
 
     private AppendEntriesRequest composeHeartBeatRequest(String peer) {

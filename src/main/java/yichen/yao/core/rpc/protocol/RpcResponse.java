@@ -8,13 +8,4 @@ import lombok.Data;
  */
 @Data
 public class RpcResponse extends RpcRequest{
-//    /**
-//     * 请求类型
-//     */
-//    private byte requestType;
-//
-//    /**
-//     * 候选人任期号
-//     */
-//    private int term;
 }

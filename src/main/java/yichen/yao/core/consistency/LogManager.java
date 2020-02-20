@@ -2,6 +2,8 @@ package yichen.yao.core.consistency;
 
 import yichen.yao.core.entity.LogEntry;
 
+import java.util.List;
+
 /**
  * @Author: siran.yao
  * @time: 2020/2/14:下午8:08
@@ -10,8 +12,10 @@ public interface LogManager {
 
     /**
      * 写日志
-     * @param logEntry
+     * @param logEntries
      */
+    void write(List<LogEntry> logEntries);
+
     void write(LogEntry logEntry);
 
     /**

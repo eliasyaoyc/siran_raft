@@ -20,6 +20,8 @@ public class NodeConfig {
      */
     private int port;
 
+    private String leaderIp;
+
     /**
      * 其他节点的ip+port
      */

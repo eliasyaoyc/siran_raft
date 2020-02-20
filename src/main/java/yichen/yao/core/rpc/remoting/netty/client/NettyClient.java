@@ -80,7 +80,7 @@ public class NettyClient implements RpcClient {
     }
 
     @Override
-    public RpcResponse sendRequest(RpcRequest rpcRequest) throws InterruptedException {
+    public RpcResponse sendRequest(String ip,RpcRequest rpcRequest) throws InterruptedException {
         if(channel != null)
             channel.writeAndFlush(rpcRequest);
         else {

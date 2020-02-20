@@ -5,9 +5,11 @@ import yichen.yao.core.common.constants.RequestType;
 import yichen.yao.core.common.constants.SerializerType;
 import yichen.yao.core.rpc.protocol.RpcRequest;
 import yichen.yao.core.rpc.protocol.request.AppendEntriesRequest;
+import yichen.yao.core.rpc.protocol.request.ClientRequest;
 import yichen.yao.core.rpc.protocol.request.InstallSnapshotRequest;
 import yichen.yao.core.rpc.protocol.request.VoteRequest;
 import yichen.yao.core.rpc.protocol.response.AppendEntriesResponse;
+import yichen.yao.core.rpc.protocol.response.ClientResponse;
 import yichen.yao.core.rpc.protocol.response.InstallSnapshotResponse;
 import yichen.yao.core.rpc.protocol.response.VoteResponse;
 import yichen.yao.core.rpc.serialization.Serializer;
@@ -33,6 +35,8 @@ public abstract class RpcCodec {
         requestMap.put(RequestType.VOTE_RESPONSE, VoteResponse.class);
         requestMap.put(RequestType.APPEND_ENTRIES_RESPONSE, AppendEntriesResponse.class);
         requestMap.put(RequestType.INSTALL_SNAPSHOT_RESPONSE, InstallSnapshotResponse.class);
+        requestMap.put(RequestType.CLIENT_REQUEST, ClientRequest.class);
+        requestMap.put(RequestType.CLIENT_RESPONSE, ClientResponse.class);
 
         serializerMap = new HashMap<Byte, Serializer>();
         serializerMap.put(SerializerType.FAST_JSON, new FastJsonSerializer());

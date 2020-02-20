@@ -20,7 +20,7 @@ public class RaftThreadFactory implements ThreadFactory {
 
     @Override
     public Thread newThread(Runnable runnable) {
-        Thread thread = new Thread(tg,runnable,namePrefix+threadNum.getAndIncrement());
+        Thread thread = new RaftThread(tg,runnable,namePrefix+threadNum.getAndIncrement());
         if(thread.isDaemon())
             thread.setDaemon(true);
         if(thread.getPriority() == Thread.MAX_PRIORITY)

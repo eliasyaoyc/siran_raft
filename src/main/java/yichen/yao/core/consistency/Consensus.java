@@ -33,4 +33,5 @@ public interface Consensus {
      * @return
      */
     InstallSnapshotResponse installSnapshotRequest(InstallSnapshotRequest request);
+
 }

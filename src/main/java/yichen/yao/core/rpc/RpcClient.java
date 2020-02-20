@@ -9,7 +9,7 @@ import yichen.yao.core.rpc.protocol.RpcResponse;
  */
 public interface RpcClient {
 
-    RpcResponse sendRequest(RpcRequest rpcRequest) throws InterruptedException;
+    RpcResponse sendRequest(String ip,RpcRequest rpcRequest) throws InterruptedException;
 
     void connection();
 }
