@@ -39,17 +39,24 @@ public class NettyClient implements RpcClient {
     private AppendEntriesResponseHandler appendEntriesResponse;
     private InstallSnapshotResponseHandler installSnapshotResponse;
 
-    public NettyClient() {
+    private NettyClient() {
         rpcCodec = new NettyRequestCodec(new SerializerFactory().getSerializer());
         channelMap = new ConcurrentHashMap<>();
+        voteResponseHandler = new VoteResponseHandler();
+        appendEntriesResponse = new AppendEntriesResponseHandler();
+        installSnapshotResponse = new InstallSnapshotResponseHandler();
+    }
+
+    public static NettyClient getInstance(){
+        return NettyClientLazyHolder.INSTANCE;
+    }
+    private static class NettyClientLazyHolder{
+        private final static NettyClient INSTANCE = new NettyClient();
     }
 
     private void connection(String peer) {
         Bootstrap bootstrap = new Bootstrap();
         EventLoopGroup workerGroup = new NioEventLoopGroup();
-        voteResponseHandler = new VoteResponseHandler();
-        appendEntriesResponse = new AppendEntriesResponseHandler();
-        installSnapshotResponse = new InstallSnapshotResponseHandler();
         try {
             bootstrap
                     .group(workerGroup)

@@ -20,6 +20,7 @@ import yichen.yao.core.rpc.protocol.response.AppendEntriesResponse;
 import yichen.yao.core.rpc.protocol.response.ClientResponse;
 import yichen.yao.core.rpc.protocol.response.InstallSnapshotResponse;
 import yichen.yao.core.rpc.protocol.response.VoteResponse;
+import yichen.yao.core.rpc.remoting.netty.client.NettyClient;
 import yichen.yao.core.rpc.remoting.netty.server.NettyServer;
 
 import java.util.*;
@@ -37,7 +38,7 @@ public class DefaultNodeImpl implements Node {
 
     public NodeConfig nodeConfig;
     private Consensus consensus;
-    private RpcClient rpcClient;
+    private RpcClient client = NettyClient.getInstance();
 
     private RaftThreadPool raftThreadPool = RaftThreadPool.INSTANCE;
 
@@ -154,7 +155,7 @@ public class DefaultNodeImpl implements Node {
         if (nodeState != NodeEnum.Leader.getCode()) {
             //如果当前节点不是leader节点，那么转发此请求到leader节点
             try {
-                return (ClientResponse) rpcClient.sendRequest(nodeConfig.getLeaderIp(), clientRequest);
+                return (ClientResponse) NettyClient.getInstance().sendRequest(nodeConfig.getLeaderIp(), clientRequest);
             } catch (InterruptedException e) {
                 e.printStackTrace();
             }
@@ -246,7 +247,7 @@ public class DefaultNodeImpl implements Node {
                     raftThreadPool.execute(() -> {
                         AppendEntriesResponse response = null;
                         try {
-                            response = (AppendEntriesResponse) rpcClient.sendRequest(peer, composeHeartBeatRequest(nodeConfig.getLeaderIp()));
+                            response = (AppendEntriesResponse) client.sendRequest(peer, composeHeartBeatRequest(nodeConfig.getLeaderIp()));
                         } catch (InterruptedException e) {
                             e.printStackTrace();
                         }
@@ -293,7 +294,7 @@ public class DefaultNodeImpl implements Node {
                 futureList.add(raftThreadPool.submit(new Callable() {
                     @Override
                     public Object call() throws Exception {
-                        return rpcClient.sendRequest(peer, composeVoteRequest(peer));
+                        return client.sendRequest(peer, composeVoteRequest(peer));
                     }
                 }));
             }
@@ -375,7 +376,7 @@ public class DefaultNodeImpl implements Node {
                 }
                 try {
                     AppendEntriesRequest request = composeAppendEntries(nodeConfig.getLeaderIp(), logEntries, logEntries.get(0).getLogIndex(), logEntries.get(0).getLogTerm());
-                    AppendEntriesResponse response = (AppendEntriesResponse) rpcClient.sendRequest(peer, request);
+                    AppendEntriesResponse response = (AppendEntriesResponse) client.sendRequest(peer, request);
                     if (response == null)
                         return false;
                     if (response.isSuccess()) {
