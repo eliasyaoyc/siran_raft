@@ -13,8 +13,7 @@
 ### 技术选型
 
 - RPC通信：Raft算法所有的读写请求都是通过leader 来发送给 follower 所以这里需要实现rpc通信,可以采用dubbo、sofa-bolt。因为之前看了dubbo的源码为了加深印象这里我选择自己实现。
-- Log：因为Raft算法是基于日志来实现Consensus。
-- 状态机：执行的指令。
+- Log：因为Raft算法是基于日志来实现Consensus。 采用开源的RocksDB
 
 ### 实现过程
 #### 1. 整个集群中需要节点之间不断的交互，那么RPC通信首先实现，如果采用开源rpc组件可以直接略过
