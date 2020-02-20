@@ -293,7 +293,6 @@ public class DefaultNodeImpl implements Node {
                 futureList.add(raftThreadPool.submit(new Callable() {
                     @Override
                     public Object call() throws Exception {
-                        String[] split = peer.split(":");
                         return rpcClient.sendRequest(peer, composeVoteRequest(peer));
                     }
                 }));
