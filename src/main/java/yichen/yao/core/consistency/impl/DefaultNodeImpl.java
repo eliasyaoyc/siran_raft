@@ -8,6 +8,7 @@ import yichen.yao.core.config.NodeConfig;
 import yichen.yao.core.consistency.Consensus;
 import yichen.yao.core.consistency.LogManager;
 import yichen.yao.core.consistency.Node;
+import yichen.yao.core.consistency.StateMachine;
 import yichen.yao.core.entity.LogEntry;
 import yichen.yao.core.rpc.RpcClient;
 import yichen.yao.core.rpc.RpcServer;
@@ -19,13 +20,9 @@ import yichen.yao.core.rpc.protocol.response.AppendEntriesResponse;
 import yichen.yao.core.rpc.protocol.response.ClientResponse;
 import yichen.yao.core.rpc.protocol.response.InstallSnapshotResponse;
 import yichen.yao.core.rpc.protocol.response.VoteResponse;
-import yichen.yao.core.rpc.remoting.netty.client.NettyClient;
 import yichen.yao.core.rpc.remoting.netty.server.NettyServer;
 
-import java.util.ArrayList;
-import java.util.LinkedList;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -38,7 +35,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class DefaultNodeImpl implements Node {
     private static final Logger LOGGER = LoggerFactory.getLogger(DefaultNodeImpl.class);
 
-    private NodeConfig nodeConfig;
+    public NodeConfig nodeConfig;
     private Consensus consensus;
     private RpcClient rpcClient;
 
@@ -46,14 +43,12 @@ public class DefaultNodeImpl implements Node {
 
     private HeartBeatTask heartBeatTask = new HeartBeatTask();
     private ElectionTask electionTask = new ElectionTask();
-    private AppendEntriesTask appendEntriesTask = new AppendEntriesTask();
-    private LogManager logManager = new DefaultLogImpl();
     private boolean started;
 
-    private volatile long electionTime = 15 * 1000;
-    private volatile long preElectionTIme = 0;
+    public volatile long electionTime = 15 * 1000;
+    public volatile long preElectionTIme = 0;
     private long heartBeatInterval = 5 * 1000;
-    private volatile long prevHeartBeatTime = 0;
+    public volatile long prevHeartBeatTime = 0;
 
     //node state  init(follower)
     public volatile int nodeState = NodeEnum.Follower.getCode();
@@ -71,7 +66,10 @@ public class DefaultNodeImpl implements Node {
     /**
      * 日志条目集；每一个条目包含一个用户状态机执行的指令，和收到时的任期号
      */
-    public volatile List<LogEntry> log;
+    public LogManager logManager = DefaultLogImpl.getInstance();
+
+    //状态机
+    public StateMachine stateMachine = DefaultStateMachineImpl.getInstance();
 
 //----------------   所有服务器上经常变的 --------------------
     /**
@@ -168,14 +166,16 @@ public class DefaultNodeImpl implements Node {
                 .logIndex(clientRequest.getLogIndex())
                 .logTerm(currentTerm)
                 .build();
+
         //写到本地
-        log.add(logEntry);
+        logManager.write(logEntry);
         //复制到其他服务器上
         List<Future<Boolean>> futureList = new ArrayList<>();
 
         for (String peer : nodeConfig.getOtherNodeList()) {
             futureList.add(replication(peer, logEntry));
         }
+
         CountDownLatch latch = new CountDownLatch(futureList.size());
         List<Boolean> result = new CopyOnWriteArrayList<>();
         AtomicInteger success = new AtomicInteger(0);
@@ -183,7 +183,8 @@ public class DefaultNodeImpl implements Node {
             raftThreadPool.execute(() -> {
                 try {
                     Boolean aBoolean = future.get(3000, TimeUnit.MILLISECONDS);
-                    if(aBoolean)
+
+                    if (aBoolean)
                         success.incrementAndGet();
 
                 } catch (Exception e) {
@@ -194,14 +195,37 @@ public class DefaultNodeImpl implements Node {
             });
         }
 
-
         try {
             latch.await(4000, TimeUnit.MILLISECONDS);
         } catch (InterruptedException e) {
             LOGGER.error("count down interrupted {}", e);
         }
+        //leader 的 commitIndex 更新的原则是 被大部分节点成功添加的index的值
+        List<Long> matchList = new ArrayList<>(matchIndex.values());
+        int middle = 0;
+        if (matchList.size() >= 2) {
+            Collections.sort(matchList);
+            middle = matchList.size() / 2;
+        }
+        Long index = matchList.get(middle);
+        if (index > commitIndex) {
+            LogEntry entry = logManager.read(index);
+            if(entry != null && entry.getLogTerm() == currentTerm)
+                commitIndex = index;
+        }
 
-        return new ClientResponse();
+        //大部分节点添加到本地 返回成功
+        if (success.get() > futureList.size() / 2) {
+            commitIndex = logEntry.getLogIndex();
+            stateMachine.apply(logEntry);
+            lastApplied = logEntry.getLogIndex();
+            LOGGER.info("success apply local state machine,logEntry {}",logEntry);
+            return new ClientResponse(true);
+        } else {
+            logManager.removeIndex(logEntry.getLogIndex());
+            LOGGER.warn("fail apply local state machine, logEntry {}",logEntry);
+            return new ClientResponse(false);
+        }
     }
 
     class HeartBeatTask implements Runnable {
@@ -222,8 +246,6 @@ public class DefaultNodeImpl implements Node {
                     raftThreadPool.execute(() -> {
                         AppendEntriesResponse response = null;
                         try {
-                            String[] split = peer.split(":");
-                            rpcClient = new NettyClient(split[0], Integer.parseInt(split[1]));
                             response = (AppendEntriesResponse) rpcClient.sendRequest(peer, composeHeartBeatRequest(nodeConfig.getLeaderIp()));
                         } catch (InterruptedException e) {
                             e.printStackTrace();
@@ -272,7 +294,6 @@ public class DefaultNodeImpl implements Node {
                     @Override
                     public Object call() throws Exception {
                         String[] split = peer.split(":");
-                        rpcClient = new NettyClient(split[0], Integer.parseInt(split[1]));
                         return rpcClient.sendRequest(peer, composeVoteRequest(peer));
                     }
                 }));
@@ -327,18 +348,12 @@ public class DefaultNodeImpl implements Node {
         }
     }
 
-    class AppendEntriesTask implements Runnable {
-        @Override
-        public void run() {
-        }
-    }
-
     private void initNextLogAndMatchLog() {
         this.nextIndex = new ConcurrentHashMap<>();
         this.matchIndex = new ConcurrentHashMap<>();
         for (String peer : nodeConfig.getOtherNodeList()) {
             matchIndex.put(peer, 0L);
-            nextIndex.put(peer, log == null ? 0L : log.get(log.size()).getLogIndex());
+            nextIndex.put(peer, logManager.getLast() == null ? 0L : logManager.getLastIndex());
         }
     }
 
@@ -351,7 +366,11 @@ public class DefaultNodeImpl implements Node {
                 Long nextLogIndex = this.nextIndex.get(peer);
                 List<LogEntry> logEntries = new LinkedList<>();
                 if (logEntry.getLogIndex() >= nextLogIndex) {
-                    logEntries = log.subList(Math.toIntExact(nextLogIndex), Math.toIntExact(logEntry.getLogIndex()));
+                    for (long i = nextLogIndex; i <= logEntry.getLogIndex(); i++) {
+                        LogEntry res = logManager.read(i);
+                        if (res != null)
+                            logEntries.add(res);
+                    }
                 } else {
                     logEntries.add(logEntry);
                 }
@@ -411,10 +430,11 @@ public class DefaultNodeImpl implements Node {
     }
 
     private VoteRequest composeVoteRequest(String peer) {
+
         return VoteRequest.builder()
                 .candidateId(peer)
-                .lastLogIndex(log == null ? 0 : log.get(log.size()).getLogIndex())
-                .lastLogTerm(log == null ? 0 : log.get(log.size()).getLogTerm())
+                .lastLogIndex(logManager.getLast() == null ? 0 : logManager.getLastIndex())
+                .lastLogTerm(logManager.getLast() == null ? 0 : logManager.getLastIndex())
                 .term(currentTerm)
                 .build();
     }

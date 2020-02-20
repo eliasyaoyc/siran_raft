@@ -11,5 +11,4 @@ public interface RpcClient {
 
     RpcResponse sendRequest(String ip,RpcRequest rpcRequest) throws InterruptedException;
 
-    void connection();
 }

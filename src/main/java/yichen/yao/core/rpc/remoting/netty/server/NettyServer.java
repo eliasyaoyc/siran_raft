@@ -10,14 +10,12 @@ import io.netty.channel.socket.nio.NioServerSocketChannel;
 import io.netty.handler.logging.LogLevel;
 import io.netty.handler.logging.LoggingHandler;
 import yichen.yao.core.consistency.Node;
-import yichen.yao.core.consistency.impl.DefaultNodeImpl;
 import yichen.yao.core.rpc.RpcServer;
 import yichen.yao.core.rpc.protocol.codec.RpcCodec;
 import yichen.yao.core.rpc.protocol.codec.netty.NettyRequestCodec;
 import yichen.yao.core.rpc.protocol.codec.netty.NettyRequestDecoder;
 import yichen.yao.core.rpc.protocol.codec.netty.NettyRequestEncoder;
 import yichen.yao.core.rpc.protocol.codec.netty.Spliter;
-import yichen.yao.core.rpc.remoting.netty.client.NettyClient;
 import yichen.yao.core.rpc.remoting.netty.server.handler.AppendEntriesRequestHandler;
 import yichen.yao.core.rpc.remoting.netty.server.handler.InstallSnapshotRequestHandler;
 import yichen.yao.core.rpc.remoting.netty.server.handler.VoteRequestHandler;
@@ -74,11 +72,5 @@ public class NettyServer implements RpcServer {
 //            bossGroup.shutdownGracefully();
 //            workerGroup.shutdownGracefully();
 //        }
-    }
-
-
-    public static void main(String[] args) {
-        new NettyServer("localhost",8775,new DefaultNodeImpl()).startServer();
-        new NettyClient("localhost",8776).connection();
     }
 }

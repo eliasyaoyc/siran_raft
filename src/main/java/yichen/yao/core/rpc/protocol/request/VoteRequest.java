@@ -23,14 +23,14 @@ public class VoteRequest extends RpcRequest {
     /**
      * 候选人最后日志条目的任期号
      */
-    private int lastLogTerm;
+    private long lastLogTerm;
 
     private int term;
 
     public VoteRequest() {
     }
 
-    private VoteRequest(String candidateId, long lastLogIndex, int lastLogTerm, int term) {
+    private VoteRequest(String candidateId, long lastLogIndex, long lastLogTerm, int term) {
         this.candidateId = candidateId;
         this.lastLogIndex = lastLogIndex;
         this.lastLogTerm = lastLogTerm;
@@ -45,7 +45,7 @@ public class VoteRequest extends RpcRequest {
     public static class VoteRequestBuilder{
         private String candidateId;
         private long lastLogIndex;
-        private int lastLogTerm;
+        private long lastLogTerm;
         private int term;
 
         private VoteRequestBuilder() {
@@ -58,7 +58,7 @@ public class VoteRequest extends RpcRequest {
             this.lastLogIndex = lastLogIndex;
             return this;
         }
-        public VoteRequestBuilder lastLogTerm(int lastLogTerm){
+        public VoteRequestBuilder lastLogTerm(long lastLogTerm){
             this.lastLogTerm = lastLogTerm;
             return this;
         }

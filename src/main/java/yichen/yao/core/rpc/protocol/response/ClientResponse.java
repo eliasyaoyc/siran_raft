@@ -21,4 +21,9 @@ public class ClientResponse extends RpcResponse {
         this.success = success;
         setRequestType(RequestType.CLIENT_RESPONSE);
     }
+
+    public ClientResponse(boolean success) {
+        this.success = success;
+        setRequestType(RequestType.CLIENT_RESPONSE);
+    }
 }

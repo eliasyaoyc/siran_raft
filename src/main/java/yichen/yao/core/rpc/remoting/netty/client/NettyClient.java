@@ -8,7 +8,6 @@ import io.netty.channel.EventLoopGroup;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioSocketChannel;
-import yichen.yao.core.consistency.impl.DefaultNodeImpl;
 import yichen.yao.core.rpc.RpcClient;
 import yichen.yao.core.rpc.protocol.RpcRequest;
 import yichen.yao.core.rpc.protocol.RpcResponse;
@@ -23,32 +22,29 @@ import yichen.yao.core.rpc.protocol.request.VoteRequest;
 import yichen.yao.core.rpc.remoting.netty.client.handler.AppendEntriesResponseHandler;
 import yichen.yao.core.rpc.remoting.netty.client.handler.InstallSnapshotResponseHandler;
 import yichen.yao.core.rpc.remoting.netty.client.handler.VoteResponseHandler;
-import yichen.yao.core.rpc.remoting.netty.server.NettyServer;
 import yichen.yao.core.rpc.serialization.SerializerFactory;
 
 import java.net.InetSocketAddress;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * @Author: siran.yao
  * @time: 2020/2/13:下午6:03
  */
 public class NettyClient implements RpcClient {
-    private String host;
-    private int port;
     private RpcCodec rpcCodec;
-    private Channel channel;
+    private Map<String, Channel> channelMap;
     private VoteResponseHandler voteResponseHandler;
     private AppendEntriesResponseHandler appendEntriesResponse;
     private InstallSnapshotResponseHandler installSnapshotResponse;
 
-    public NettyClient(String host, int port) {
-        this.host = host;
-        this.port = port;
+    public NettyClient() {
         rpcCodec = new NettyRequestCodec(new SerializerFactory().getSerializer());
+        channelMap = new ConcurrentHashMap<>();
     }
 
-    @Override
-    public void connection() {
+    private void connection(String peer) {
         Bootstrap bootstrap = new Bootstrap();
         EventLoopGroup workerGroup = new NioEventLoopGroup();
         voteResponseHandler = new VoteResponseHandler();
@@ -71,8 +67,10 @@ public class NettyClient implements RpcClient {
                             ;
                         }
                     });
-            ChannelFuture cf = bootstrap.connect(new InetSocketAddress(host,port)).sync();
-            channel = cf.channel();
+            ChannelFuture cf = bootstrap.connect(new InetSocketAddress("localhost", Integer.parseInt(peer.split(":")[1]))).sync();
+            Channel channel = cf.channel();
+            if (!channelMap.containsKey(peer))
+                channelMap.put(peer, channel);
             channel.closeFuture();
         } catch (InterruptedException e) {
             e.printStackTrace();
@@ -80,26 +78,25 @@ public class NettyClient implements RpcClient {
     }
 
     @Override
-    public RpcResponse sendRequest(String ip,RpcRequest rpcRequest) throws InterruptedException {
-        if(channel != null)
-            channel.writeAndFlush(rpcRequest);
+    public RpcResponse sendRequest(String peer, RpcRequest rpcRequest) throws InterruptedException {
+        Channel channel = null;
+        if (channelMap.containsKey(peer))
+            channel = channelMap.get(peer);
         else {
-            connection();
-            if(channel != null)
-                channel.writeAndFlush(rpcRequest);
+            connection(peer);
+            if (channelMap.containsKey(peer))
+                channel = channelMap.get(peer);
         }
         RpcResponse rpcResponse = null;
-        if(rpcRequest instanceof VoteRequest)
-            rpcResponse = voteResponseHandler.getResponse();
-        if(rpcRequest instanceof AppendEntriesRequest)
-            rpcResponse = appendEntriesResponse.getResponse();
-        if (rpcRequest instanceof InstallSnapshotRequest)
-            rpcResponse = installSnapshotResponse.getResponse();
+        if (channel != null) {
+            channel.writeAndFlush(rpcRequest);
+            if (rpcRequest instanceof VoteRequest)
+                rpcResponse = voteResponseHandler.getResponse();
+            if (rpcRequest instanceof AppendEntriesRequest)
+                rpcResponse = appendEntriesResponse.getResponse();
+            if (rpcRequest instanceof InstallSnapshotRequest)
+                rpcResponse = installSnapshotResponse.getResponse();
+        }
         return rpcResponse;
-    }
-
-    public static void main(String[] arg){
-        new NettyServer("localhost",8776,new DefaultNodeImpl()).startServer();
-        new NettyClient("localhost", 8775).connection();
     }
 }

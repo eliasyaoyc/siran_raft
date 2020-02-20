@@ -4,7 +4,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import yichen.yao.core.common.enums.NodeEnum;
 import yichen.yao.core.consistency.Consensus;
-import yichen.yao.core.consistency.LogManager;
 import yichen.yao.core.entity.LogEntry;
 import yichen.yao.core.rpc.protocol.request.AppendEntriesRequest;
 import yichen.yao.core.rpc.protocol.request.InstallSnapshotRequest;
@@ -13,7 +12,6 @@ import yichen.yao.core.rpc.protocol.response.AppendEntriesResponse;
 import yichen.yao.core.rpc.protocol.response.InstallSnapshotResponse;
 import yichen.yao.core.rpc.protocol.response.VoteResponse;
 
-import java.util.List;
 import java.util.concurrent.locks.ReentrantLock;
 
 /**
@@ -31,8 +29,6 @@ public class DefaultConsensusImpl implements Consensus {
     }
 
     private ReentrantLock lock = new ReentrantLock();
-
-    private LogManager logManager = new DefaultLogImpl();
 
     /**
      * 接收投票请求并且处理
@@ -64,11 +60,10 @@ public class DefaultConsensusImpl implements Consensus {
                 if (node.votedFor.equals("") || node.votedFor == null ||
                         node.votedFor.equals(request.getCandidateId())) {
 
-                    List<LogEntry> log = node.log;
-                    if (log != null && log.size() > 0) {
-                        LogEntry last = log.get(log.size());
-                        if (request.getLastLogTerm() > last.getLogIndex() ||
-                                request.getLastLogTerm() == last.getLogIndex() && request.getLastLogIndex() > last.getLogIndex()) {
+                    LogEntry log = node.logManager.getLast();
+                    if (log != null) {
+                        if (request.getLastLogTerm() > log.getLogIndex() ||
+                                request.getLastLogTerm() == log.getLogIndex() && request.getLastLogIndex() > log.getLogIndex()) {
                             node.votedFor = request.getCandidateId();
                             return composeVoteResponse(node.currentTerm, true);
                         }
@@ -95,44 +90,71 @@ public class DefaultConsensusImpl implements Consensus {
     @Override
     public AppendEntriesResponse appendEntriesRequest(AppendEntriesRequest request) {
         LOGGER.info("handle append entries request {}", request);
+        try {
+            if (lock.tryLock()) {
+                if (request.getTerm() >= node.currentTerm) {
+                    if (node.nodeState != NodeEnum.Follower.getCode()) {
+                        node.nodeState = NodeEnum.Follower.getCode();
+                        node.currentTerm = request.getTerm();
+                    }
 
-        if (request.getTerm() >= node.currentTerm) {
-            if (node.nodeState != NodeEnum.Follower.getCode())
-                node.nodeState = NodeEnum.Follower.getCode();
+                    if (request.getEntries() == null && request.getEntries().size() < 0) {
+                        node.prevHeartBeatTime = System.currentTimeMillis();
+                        node.preElectionTIme = System.currentTimeMillis();
+                        node.nodeConfig.setLeaderIp(request.getLeaderId());
+                        //心跳
+                        return composeAppendEntriesResponse(node.currentTerm, true);
+                    }
 
-            if (request.getEntries() == null && request.getEntries().size() < 0) {
-                //心跳
-                node.currentTerm = request.getTerm();
-                return composeAppendEntriesResponse(node.currentTerm, true);
-            } else {
-                lock.tryLock();
-                //附加日志
-                try {
-                    if (node.log.size() > request.getPrevLogIndex()) {
-                        LogEntry logEntry = node.log.get((int) (request.getPrevLogIndex() - 1));
-                        if (logEntry.getLogTerm() != request.getPrevLogTerm())
-                            //有冲突，删除这一条和之后的所有日志
-                            node.log = node.log.subList(0, (int) request.getPrevLogIndex());
-                        else {
-                            if (request.getLeaderCommit() > node.commitIndex) {
-                                node.commitIndex = request.getLeaderCommit() > request.getEntries().get(0).getLogIndex() ?
-                                        request.getEntries().get(0).getLogIndex() : request.getLeaderCommit();
-
-                                List<LogEntry> logEntries = node.log.subList((int) node.lastApplied, (int) node.commitIndex);
-                                //写日志
-                                logManager.write(logEntries);
-                                node.lastApplied = logManager.getLast().getLogIndex();
+                    //附加日志
+                    if (request.getPrevLogIndex() != 0) {
+                        if (node.logManager.getLastIndex() != 0) {
+                            LogEntry entry = node.logManager.read(request.getPrevLogIndex());
+                            if (entry != null) {
+                                if (entry.getLogTerm() == request.getTerm()) {
+                                    //请求的任期号不对
+                                    return composeAppendEntriesResponse(node.currentTerm, false);
+                                }
+                            } else {
+                                //请求的index不对 需要leader 把index - 1 返回false
+                                return composeAppendEntriesResponse(node.currentTerm, false);
                             }
                         }
                     }
-                } catch (Exception e) {
-                    e.printStackTrace();
-                } finally {
-                    lock.unlock();
+                    // 如果已经存在的日志条目和新的产生冲突（索引值相同但是任期号不同），删除这一条和之后所有的
+                    LogEntry existLog = node.logManager.read(request.getPrevLogIndex() + 1);
+                    if (existLog != null && existLog.getLogTerm() != request.getEntries().get(0).getLogTerm()) {
+                        // 删除这一条和之后所有的
+                        node.logManager.removeIndex(request.getPrevLogIndex() + 1);
+                    } else if (existLog != null) {
+                        // 已存在 不用重复写入
+                        return composeAppendEntriesResponse(node.currentTerm, true);
+                    }
+
+                    // 写进日志
+                    for (LogEntry entry : request.getEntries()) {
+                        node.logManager.write(entry);
+                    }
+
+                    //比较leader 已提交的日志 和本地已提交的日志
+                    if (request.getLeaderCommit() >= node.commitIndex) {
+                        for (long i = node.commitIndex + 1; i <= request.getLeaderCommit(); i++) {
+                            LogEntry entry = node.logManager.read(i);
+                            node.stateMachine.apply(entry);
+                            node.commitIndex = i;
+                            node.lastApplied = i;
+                        }
+                    }
                 }
             }
+            return composeAppendEntriesResponse(node.currentTerm, true);
+        } catch (Exception e) {
+            LOGGER.error("encounter unknown exception {}", e);
+            return composeAppendEntriesResponse(node.currentTerm, false);
+        } finally {
+            lock.unlock();
         }
-        return composeAppendEntriesResponse(node.currentTerm, false);
+
     }
 
     /**
