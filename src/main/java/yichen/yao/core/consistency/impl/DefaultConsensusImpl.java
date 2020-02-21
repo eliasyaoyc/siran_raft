@@ -98,10 +98,11 @@ public class DefaultConsensusImpl implements Consensus {
                         node.currentTerm = request.getTerm();
                     }
 
+                    node.prevHeartBeatTime = System.currentTimeMillis();
+                    node.preElectionTIme = System.currentTimeMillis();
+                    node.nodeConfig.setLeaderIp(request.getLeaderId());
+
                     if (request.getEntries() == null && request.getEntries().size() < 0) {
-                        node.prevHeartBeatTime = System.currentTimeMillis();
-                        node.preElectionTIme = System.currentTimeMillis();
-                        node.nodeConfig.setLeaderIp(request.getLeaderId());
                         //心跳
                         return composeAppendEntriesResponse(node.currentTerm, true);
                     }
